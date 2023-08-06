@@ -1,30 +1,86 @@
+from flask import Flask, render_template, request,jsonify
+from flask_cors import CORS,cross_origin
 import requests
-from bs4 import BeautifulSoup as bs 
-from urllib.request import urlopen
+from bs4 import BeautifulSoup as bs
+from urllib.request import urlopen as uReq
 import logging
+logging.basicConfig(filename="scrapper.log" , level=logging.INFO)
 
-flipcart_url = "https://www.flipkart.com/search?q=" + "iphone12pro"
+app = Flask(__name__)
 
-urlclint = urlopen(flipcart_url)
+@app.route("/", methods = ['GET'])
+def homepage():
+    return render_template("index.html")
 
-flipcart_url = urlclint.read()
+@app.route("/review" , methods = ['POST' , 'GET'])
+def index():
+    if request.method == 'POST':
+        try:
+            searchString = request.form['content'].replace(" ","")
+            flipkart_url = "https://www.flipkart.com/search?q=" + searchString
+            uClient = uReq(flipkart_url)
+            flipkartPage = uClient.read()
+            uClient.close()
+            flipkart_html = bs(flipkartPage, "html.parser")
+            bigboxes = flipkart_html.findAll("div", {"class": "_1AtVbE col-12-12"})
+            del bigboxes[0:3]
+            box = bigboxes[0]
+            productLink = "https://www.flipkart.com" + box.div.div.div.a['href']
+            prodRes = requests.get(productLink)
+            prodRes.encoding='utf-8'
+            prod_html = bs(prodRes.text, "html.parser")
+            print(prod_html)
+            commentboxes = prod_html.find_all('div', {'class': "_16PBlm"})
 
-flipcart_html= bs(flipcart_url,'html.parser')
+            filename = searchString + ".csv"
+            fw = open(filename, "w")
+            headers = "Product, Customer Name, Rating, Heading, Comment \n"
+            fw.write(headers)
+            reviews = []
+            for commentbox in commentboxes:
+                try:
+                    #name.encode(encoding='utf-8')
+                    name = commentbox.div.div.find_all('p', {'class': '_2sc7ZR _2V5EHH'})[0].text
 
-bigbox = flipcart_html.findAll("div",{"class":"_1AtVbE col-12-12"})
-print(len(bigbox))
-del bigbox[0:2]
-del bigbox[-3:]
+                except:
+                    logging.info("name")
 
-for i in range(len(bigbox)):
-    print(bigbox[i].div.div.div.a['href'])
+                try:
+                    #rating.encode(encoding='utf-8')
+                    rating = commentbox.div.div.div.div.text
 
 
-print(len(bigbox))
+                except:
+                    rating = 'No Rating'
+                    logging.info("rating")
 
-product_link="https://www.flipkart.com"+bigbox[3].div.div.div.a['href'] 
+                try:
+                    #commentHead.encode(encoding='utf-8')
+                    commentHead = commentbox.div.div.div.p.text
 
-product_req=requests.get(product_link)
-print(product_req)
+                except:
+                    commentHead = 'No Comment Heading'
+                    logging.info(commentHead)
+                try:
+                    comtag = commentbox.div.div.find_all('div', {'class': ''})
+                    #custComment.encode(encoding='utf-8')
+                    custComment = comtag[0].div.text
+                except Exception as e:
+                    logging.info(e)
 
-print(bs(product_req.text,'html.parser'))
+                mydict = {"Product": searchString, "Name": name, "Rating": rating, "CommentHead": commentHead,
+                          "Comment": custComment}
+                reviews.append(mydict)
+            logging.info("log my final result {}".format(reviews))
+            return render_template('result.html', reviews=reviews[0:(len(reviews)-1)])
+        except Exception as e:
+            logging.info(e)
+            return 'something is wrong'
+    # return render_template('results.html')
+
+    else:
+        return render_template('index.html')
+
+
+if __name__=="__main__":
+    app.run(host="0.0.0.0")
